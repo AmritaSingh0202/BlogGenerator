@@ -14,6 +14,8 @@ ModelQuick Demo Images and Videos:
 5. PostgreSql Connection: ( ![alt text](<Blogs-Img-vdos/PostgreSql Connection.png>)  )
 6. Project Demo for transcription:(<video controls src="Blogs-Img-vdos/Project Videos.mp4" title="Title"></video>   )
 
+7. If Images link don't work please go to ((MY_BLOG_APP main folder>>> Under that READme.md))***
+
 [Watch full videos on: Youtube>>>>https://youtu.be/JaIKNyYY08o?si=L7d8Fnpkw5HMgWyQ]
 
 
