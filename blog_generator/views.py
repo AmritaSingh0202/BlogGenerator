@@ -4,18 +4,17 @@ from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
-from django.conf import settings
 import json
-from pytube import YouTube
 import os
+from pytube import YouTube
 import assemblyai as aai
 import openai
 from .models import BlogPost
+from django.conf import settings
 
-# Create your views here.
-#Assembbly: 589c33eacb5c4daa85b5840e53f3112c
-#openai:
-
+# API keys
+ASSEMBLYAI_API_KEY = "9375340f26994335856227f1a092acdf"
+OPENAI_API_KEY = "sk-kUTBHzUV1f5eLDLnz6NYBvh5RrpT5-z0LoHKqciHDfT3BlbkFJfjpGPy-H6y5IKcrenRgqw2ucdqgFzaHQTBRlsVEI0A"
 
 @login_required
 def index(request):
@@ -30,22 +29,26 @@ def generate_blog(request):
         except (KeyError, json.JSONDecodeError):
             return JsonResponse({'error': 'Invalid data sent'}, status=400)
 
-
-        # get yt title
+        # Get YouTube video title
         title = yt_title(yt_link)
 
-        # get transcript
+        # Get transcript
         transcription = get_transcription(yt_link)
         if not transcription:
-            return JsonResponse({'error': " Failed to get transcript"}, status=500)
+            return JsonResponse({'error': "Failed to get transcript"}, status=500)
 
+        # Debugging output
+        print(f"Transcription: {transcription}")
 
-        # use OpenAI to generate the blog
+        # Use OpenAI to generate the blog
         blog_content = generate_blog_from_transcription(transcription)
         if not blog_content:
-            return JsonResponse({'error': " Failed to generate blog article"}, status=500)
+            return JsonResponse({'error': "Failed to generate blog article"}, status=500)
 
-        # save blog article to database
+        # Debugging output
+        print(f"Generated Blog Content: {blog_content}")
+
+        # Save blog article to database
         new_blog_article = BlogPost.objects.create(
             user=request.user,
             youtube_title=title,
@@ -54,60 +57,89 @@ def generate_blog(request):
         )
         new_blog_article.save()
 
-        # return blog article as a response
+        # Return blog article as a response
         return JsonResponse({'content': blog_content})
     else:
         return JsonResponse({'error': 'Invalid request method'}, status=405)
 
 def yt_title(link):
-    yt = YouTube(link)
-    title = yt.title
-    return title
+    try:
+        yt = YouTube(link)
+        title = yt.title
+        return title
+    except Exception as e:
+        print(f"Error fetching YouTube title: {e}")
+        return "Unknown Title"
 
 def download_audio(link):
-    yt = YouTube(link)
-    video = yt.streams.filter(only_audio=True).first()
-    out_file = video.download(output_path=settings.MEDIA_ROOT)
-    base, ext = os.path.splitext(out_file)
-    new_file = base + '.mp3'
-    os.rename(out_file, new_file)
-    return new_file
+    try:
+        yt = YouTube(link)
+        video = yt.streams.filter(only_audio=True).first()
+        if not video:
+            print("No audio stream available for this video.")
+            return None
+
+        out_file = video.download(output_path=settings.MEDIA_ROOT)  # type: ignore
+        base, ext = os.path.splitext(out_file)
+        new_file = base + '.mp3'
+        os.rename(out_file, new_file)
+        return new_file
+    except Exception as e:
+        print(f"Error downloading audio: {e}")
+        return None
 
 def get_transcription(link):
     audio_file = download_audio(link)
-    aai.settings.api_key = "589c33eacb5c4daa85b5840e53f3112c"
+    if not audio_file:
+        return None
 
-    transcriber = aai.Transcriber()
-    transcript = transcriber.transcribe(audio_file)
-
-    return transcript.text
+    aai.settings.api_key = ASSEMBLYAI_API_KEY
+    try:
+        transcriber = aai.Transcriber()
+        transcript = transcriber.transcribe(audio_file)
+        print(f"Transcript: {transcript.text}")  # Debugging line
+        if not transcript.text:
+            print("No transcription text received.")
+        return transcript.text
+    except Exception as e:
+        print(f"Error during transcription: {e}")
+        return None
 
 def generate_blog_from_transcription(transcription):
-    openai.api_key = "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"
-      ############****
-    prompt = f"Based on the following transcript from a YouTube video, write a comprehensive blog article, write it based on the transcript, but dont make it look like a youtube video, make it look like a proper blog article:\n\n{transcription}\n\nArticle:"
+    openai.api_key = OPENAI_API_KEY
+    prompt = f"Based on the following transcript from a YouTube video, write a comprehensive blog article. Write it based on the transcript, but don’t make it look like a YouTube video; make it look like a proper blog article:\n\n{transcription}\n\nArticle:"
 
-    response = openai.Completion.create(
-        model="text-davinci-003",
-        prompt=prompt,
-        max_tokens=1000
-    )
-
-    generated_content = response.choices[0].text.strip()
-
-    return generated_content
-
-
+    try:
+        response = openai.Completion.create(
+            model="text-davinci-003",
+            prompt=prompt,
+            max_tokens=1000
+        )
+        print(f"OpenAI Response: {response}")  # Debugging line
+        if response.choices:
+            generated_content = response.choices[0].text.strip()
+            if not generated_content:
+                print("Generated content is empty.")
+            return generated_content
+        else:
+            print("No choices in response.")
+            return None
+    except Exception as e:
+        print(f"Error during blog generation: {e}")
+        return None
 
 def blog_list(request):
     blog_articles = BlogPost.objects.filter(user=request.user)
     return render(request, "all-blogs.html", {'blog_articles': blog_articles})
 
 def blog_details(request, pk):
-    blog_article_detail = BlogPost.objects.get(id=pk)
-    if request.user == blog_article_detail.user:
-        return render(request, 'blog-details.html', {'blog_article_detail': blog_article_detail})
-    else:
+    try:
+        blog_article_detail = BlogPost.objects.get(id=pk)
+        if request.user == blog_article_detail.user:
+            return render(request, 'blog-details.html', {'blog_article_detail': blog_article_detail})
+        else:
+            return redirect('/')
+    except BlogPost.DoesNotExist:
         return redirect('/')
 
 def user_login(request):
@@ -138,12 +170,12 @@ def user_signup(request):
                 user.save()
                 login(request, user)
                 return redirect('/')
-            except:
-                error_message = 'Error creating account'
-                return render(request, 'signup.html', {'error_message':error_message})
+            except Exception as e:
+                error_message = f'Error creating account: {e}'
+                return render(request, 'signup.html', {'error_message': error_message})
         else:
-            error_message = 'Password do not match'
-            return render(request, 'signup.html', {'error_message':error_message})
+            error_message = 'Passwords do not match'
+            return render(request, 'signup.html', {'error_message': error_message})
         
     return render(request, 'signup.html')
 
